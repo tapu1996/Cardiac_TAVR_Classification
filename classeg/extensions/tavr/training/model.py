@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class UNet3D(nn.Module):
+
+class ClassNet(nn.Module):
     def __init__(self, in_channels, out_channels):
-        super(UNet3D, self).__init__()
+        super(ClassNet, self).__init__()
         self.dropout_prob = 0.25
         # Encoder (downsampling path)
         self.encoder1 = self.conv_block(in_channels, 16)
@@ -16,9 +17,9 @@ class UNet3D(nn.Module):
 
         # Bottleneck
         self.bottleneck = self.conv_block(512, 1024)
-
+        self.reduce = nn.Linear(1024, 512)
         # Dense layers
-        #self.fc1 = nn.Linear()
+        # self.fc1 = nn.Linear()
         self.fc2 = nn.Linear(512, out_channels)
 
     def conv_block(self, in_channels, out_channels):
@@ -42,28 +43,24 @@ class UNet3D(nn.Module):
         enc4 = self.encoder4(enc3)
         enc5 = self.encoder5(enc4)
         enc6 = self.encoder6(enc5)
-
         # Bottleneck
         bottleneck = self.bottleneck(enc6)
-
+        bottleneck = F.max_pool3d(bottleneck, kernel_size=bottleneck.size()[2:])
         # Flatten bottleneck output
-        
-        flatten = bottleneck.view(bottleneck.size(0), -1) # [B, features]
-        reduce = nn.Linear(flatten.shape[-1],512) # features -> 512
+        flatten = bottleneck.view(bottleneck.size(0), -1)  # [B, features]
         # # Dense layers
-        fc1_output = F.relu(reduce(flatten))
-        output = self.fc2(fc1_output)
+        fc1_output = F.relu(self.reduce(flatten))
+        return self.fc2(fc1_output)
 
-        return output
 
 # Example usage
 if __name__ == "__main__":
     # Example input: 1 channel, example output: 2 channels (for binary segmentation)
-    model = UNet3D(in_channels=10, out_channels=2)
+    model = ClassNet(in_channels=10, out_channels=2)
 
     # # Example input tensor
-    # x = torch.randn((1, 10, 128, 128, 128))  # Batch size 1, 10 channel, 64x64x64 volume
+    x = torch.randn((1, 10, 128, 128, 128))  # Batch size 1, 10 channel, 64x64x64 volume
 
     # # Forward pass
-    # output = model(x)
-    # print("Output shape:", output.shape)
+    output = model(x)
+    print("Output shape:", output.shape)

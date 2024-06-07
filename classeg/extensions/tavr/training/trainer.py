@@ -121,5 +121,10 @@ class ClassificationTrainer(Trainer):
             log("Loss being used is nn.CrossEntropyLoss()")
         return nn.CrossEntropyLoss()
 
-    def get_model(self):
-        ...
+    def get_model(self, path: str) -> nn.Module:
+        """
+        Build the model object.
+        :return: The model to be used.
+        """
+        from classeg.extensions.tavr.training.model import ClassNet
+        return ClassNet(in_channels=10, out_channels=2)
