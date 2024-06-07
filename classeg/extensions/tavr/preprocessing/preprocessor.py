@@ -15,8 +15,6 @@ from tqdm import tqdm
 from classeg.utils.utils import get_case_name_from_number
 import pickle
 from typing import List, Tuple, Union
-from classeg.extensions.tavr.preprocessing.normalizer import NaturalImageNormalizer
-ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 """
 Extensions require to keep class name the same for proper loading
