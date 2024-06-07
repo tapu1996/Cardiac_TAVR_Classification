@@ -3,13 +3,18 @@ from typing import Dict
 import numpy as np
 from PIL import ImageFile
 from overrides import override
-
 from classeg.preprocessing.preprocessor import Preprocessor
 from classeg.preprocessing.splitting import Splitter
 from classeg.utils.constants import *
 import pandas as pd
+import SimpleITK as sitk
+import nibabel as nib
+import glob
+from multiprocessing.pool import Pool
+from tqdm import tqdm
 from classeg.utils.utils import get_case_name_from_number
-
+import pickle
+from typing import List, Tuple, Union
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 """
@@ -17,7 +22,7 @@ Extensions require to keep class name the same for proper loading
 """
 
 
-class ExtensionPreprocessor(Preprocessor):
+class TAVRPreprocessor(Preprocessor):
     def __init__(self, dataset_id: str, folds: int, processes: int, normalize: bool, dataset_desc: str = None, 
     ids_mapping: str = None, path_to_lv: str = None, **kwargs):
         """
@@ -33,12 +38,13 @@ class ExtensionPreprocessor(Preprocessor):
             raise SystemExit("Pass ids_mapping=path to csv")
         if path_to_lv is None:
             raise SystemExit("Pass path_to_lv=path to path_to_lv")
-        self.ids_mapping = pd.from_csv(ids_mapping)
+        self.ids_mapping = pd.read_csv(ids_mapping)
         self.path_to_lv = path_to_lv
         self.mode: Union["images", "segmentations"] = "images"
         if self.mode == "segmentations":
             # self.skip_zscore_norm = True
             ...
+        self.normalize = True
 
     def get_config(self) -> Dict:
         return {
@@ -63,6 +69,53 @@ class ExtensionPreprocessor(Preprocessor):
         """
         ...
 
+    @staticmethod
+    def do_single_row_setup(data: Tuple[pd.Series, str, List[str]]):
+        row, raw_dir, existing_samples = data
+
+        end_p = row["EndPointFinalized"]
+        set_type: Union["Train", "Test"] = row["Dataset_type"]
+        if set_type != "Train":
+            return
+        raw_folder = row["folder"]
+        point_id = row["id"]
+        # find the nii for the things and stack and move
+        target_directory = f"{raw_dir}/{end_p}"
+        os.makedirs(target_directory, exist_ok=True)
+        # load
+        case_name = get_case_name_from_number(int(point_id)) # case_xxxxx
+        samples_for_row = [x for x in existing_samples if f"_{case_name.split('_')[1]}_0000_LV" in x]
+        samples_for_row = sorted(samples_for_row)
+        samples_for_row = [sitk.ReadImage(x) for x in samples_for_row]
+        if len(samples_for_row) == 0:
+            print(samples_for_row, case_name)
+            warnings.warn(f"No samples found for this case {case_name}")
+            return
+
+        metadata = {
+            "spacing": samples_for_row[0].GetSpacing(),
+            "origin": samples_for_row[0].GetOrigin(),
+            "direction": samples_for_row[0].GetDirection()
+        }
+        dataset_name = raw_dir.split("/")[-2]
+        os.makedirs(f"{PREPROCESSED_ROOT}/{dataset_name}/metadata", exist_ok=True)
+        with open(f"{PREPROCESSED_ROOT}/{dataset_name}/metadata/{case_name}.pkl", "wb") as f:
+            pickle.dump(metadata, f)
+
+        samples_for_row = [sitk.GetArrayFromImage(x) for x in samples_for_row]
+        samples_for_row = np.stack(samples_for_row, axis=0)
+        # final_sample = sitk.GetImageFromArray(samples_for_row)
+        # print(final_sample.GetSize())
+        # final_sample.SetDirection(metadata["direction"])
+        # final_sample.SetOrigin(metadata["origin"])
+        # final_sample.SetSpacing(metadata["spacing"])
+        # print(final_sample.GetSize())
+        # sitk.WriteImage(final_sample, f"{target_directory}/{case_name}.nii.gz")
+        # nifti_image = nib.Nifti1Image(samples_for_row, affine)
+        # print(nifti_image.shape)
+        np.save(f"{target_directory}/{case_name}.npy", samples_for_row)
+
+
     @override
     def pre_preprocessing(self):
         """
@@ -70,35 +123,13 @@ class ExtensionPreprocessor(Preprocessor):
         """
         # setup the raw structure -> stacking stuff -> class folders
         raw_dir = f"{RAW_ROOT}/{self.dataset_name}/"
-        os.makedirs(raw_dir, exists_ok=True)
+        os.makedirs(raw_dir, exist_ok=True)
         existing_samples = glob.glob(f"{self.path_to_lv}/{self.mode}/*.nii.gz")
-        for i, row in self.ids_mapping.iterrows():
-            end_p = row["End Point"]
-            set_type: Union["Train", "Test"] = row["Dataset_type"]
-            if set_type == "Test":
-                continue
-            raw_folder = row["folder"]
-            point_id = row["id"]
-            # find the nii for the things and stack and move
-            target_directory = f"{raw_dir}/{end_p}"
-            os.makedirs(target_directory, exists_ok=True)
-            # load
-            case_name = get_case_name_from_number(int(point_id)) # case_xxxxx
-            samples_for_row = [x for x in existing_samples if f"_{case_name.split(_)[1]}_0000_LV" in x]
-            samples_for_row = sorted(samples_for_row)
-            samples_for_row = [sitk.ReadImage(x) for x in samples_for_row]
-            metadata = {
-                "spacing": samples_for_row[0].GetSpacing(),
-                "origin": samples_for_row[0].GetOrigin(),
-                "direction": samples_for_row[0].GetDirection()
-            }
-            samples_for_row = np.stack([sitk.GetArrayFromImage(x) for x in samples_for_row])
-            final_sample = sitk.GetImageFromArray(samples_for_row)
-            final_sample.SetDirection(metadata["direction"])
-            final_sample.SetOrigin(metadata["origin"])
-            final_sample.SetSpacing(metadata["spacing"])
-            sitk.WriteImage(final_sample, f"{target_directory}/{case_name}.nii.gz")
-
+        with tqdm(total=len(self.ids_mapping)) as pbar:
+            with Pool(self.processes) as pool:
+                for _ in pool.imap_unordered(TAVRPreprocessor.do_single_row_setup, [(x, raw_dir, existing_samples) for _, x in self.ids_mapping.iterrows()]):
+                    pbar.update()
+            
 
     def process(self) -> None:
         super().process()
