@@ -121,7 +121,7 @@ class ClassificationTrainer(Trainer):
             log("Loss being used is nn.CrossEntropyLoss()")
         return nn.CrossEntropyLoss()
 
-    def get_model(self, path: str) -> nn.Module:
+    def get_model(self, _: str) -> nn.Module:
         """
         Build the model object.
         :return: The model to be used.
