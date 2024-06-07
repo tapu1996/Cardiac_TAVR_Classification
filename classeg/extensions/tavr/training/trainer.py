@@ -31,19 +31,19 @@ class ClassificationTrainer(Trainer):
         self.softmax = nn.Softmax(dim=1)
 
     def get_augmentations(self) -> Tuple[Any, Any]:
-        train_aug = transforms.Compose([
-            transforms.Resize(self.config.get('target_size', [512, 512]), antialias=True),
-            transforms.RandomRotation(degrees=30),
-            transforms.RandomAdjustSharpness(1.3),
-            transforms.RandomVerticalFlip(p=0.25),
-            transforms.RandomHorizontalFlip(p=0.25),
-            transforms.RandomErasing(p=0.25, scale=(0.02, 0.33))
-        ])
-        val_aug = transforms.Compose([
-            transforms.Resize(self.config.get('target_size', [512, 512]), antialias=True)
-        ])
+        # train_aug = transforms.Compose([
+        #     transforms.Resize(self.config.get('target_size', [512, 512]), antialias=True),
+        #     transforms.RandomRotation(degrees=30),
+        #     transforms.RandomAdjustSharpness(1.3),
+        #     transforms.RandomVerticalFlip(p=0.25),
+        #     transforms.RandomHorizontalFlip(p=0.25),
+        #     transforms.RandomErasing(p=0.25, scale=(0.02, 0.33))
+        # ])
+        # val_aug = transforms.Compose([
+        #     transforms.Resize(self.config.get('target_size', [512, 512]), antialias=True)
+        # ])
 
-        return train_aug, val_aug
+        return None, None
 
     def train_single_epoch(self, epoch) -> float:
         """
@@ -57,7 +57,7 @@ class ClassificationTrainer(Trainer):
         for data, labels, _ in tqdm(self.train_dataloader):
             self.optim.zero_grad()
             if log_image:
-                self.log_helper.log_augmented_image(data[0])
+                self.log_helper.log_augmented_image(data[0][0][100])
             labels = labels.to(self.device, non_blocking=True)
             data = data.to(self.device)
             batch_size = data.shape[0]
