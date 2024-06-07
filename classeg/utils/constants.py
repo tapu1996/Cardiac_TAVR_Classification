@@ -17,17 +17,17 @@ if not os.path.exists(os.path.expanduser("~/.classegrc")):
 with open(os.path.expanduser("~/.classegrc"), "r") as config_file:
     current_config = json.load(config_file)
 
-RAW_ROOT = os.getenv('RAW_ROOT')
+RAW_ROOT = "/work/vision_lab/Cardiac_TAVR_Classification/data_root/raw"
 if RAW_ROOT is None or not os.path.exists(RAW_ROOT):
     raise NotADirectoryError('You must define $RAW_ROOT in your environment variables '
                              '(in ~/.bashrc or ~/.profile), and make sure that the path exists.')
 
-PREPROCESSED_ROOT = os.getenv('PREPROCESSED_ROOT')
+PREPROCESSED_ROOT = "/work/vision_lab/Cardiac_TAVR_Classification/data_root/preprocessed"
 if PREPROCESSED_ROOT is None or not os.path.exists(PREPROCESSED_ROOT):
     raise NotADirectoryError('You must define $PREPROCESSED_ROOT in your environment variables '
                              '(in ~/.bashrc or ~/.profile), and make sure that the path exists.')
 
-RESULTS_ROOT = os.getenv('RESULTS_ROOT')
+RESULTS_ROOT = "/work/vision_lab/Cardiac_TAVR_Classification/data_root/results"
 if RESULTS_ROOT is None or not os.path.exists(RESULTS_ROOT):
     raise NotADirectoryError('You must define $RESULTS_ROOT in your environment variables '
                              '(in ~/.bashrc or ~/.profile), and make sure that the path exists.')
