@@ -44,6 +44,7 @@ class TAVRPreprocessor(Preprocessor):
         if self.mode == "segmentations":
             # self.skip_zscore_norm = True
             ...
+        self.normalize = True
 
     def get_config(self) -> Dict:
         return {
