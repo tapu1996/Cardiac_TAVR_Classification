@@ -17,10 +17,15 @@ class ClassNet(nn.Module):
 
         # Bottleneck
         self.bottleneck = self.conv_block(512, 1024)
-        self.reduce = nn.Linear(1024, 512)
         # Dense layers
         # self.fc1 = nn.Linear()
-        self.fc2 = nn.Linear(512, out_channels)
+        self.classifier = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, out_channels)
+        )
 
     def conv_block(self, in_channels, out_channels):
         return nn.Sequential(
@@ -45,12 +50,11 @@ class ClassNet(nn.Module):
         enc6 = self.encoder6(enc5)
         # Bottleneck
         bottleneck = self.bottleneck(enc6)
-        bottleneck = F.max_pool3d(bottleneck, kernel_size=bottleneck.size()[2:])
+        flat = F.max_pool3d(bottleneck, kernel_size=bottleneck.size()[2:])
         # Flatten bottleneck output
-        flatten = bottleneck.view(bottleneck.size(0), -1)  # [B, features]
+        flat = flat.view(flat.size(0), -1)  # [B, features]
         # # Dense layers
-        fc1_output = F.relu(self.reduce(flatten))
-        return self.fc2(fc1_output)
+        return self.classifier(flat)
 
 
 # Example usage

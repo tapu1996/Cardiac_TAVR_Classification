@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
-                 config_name: str, resume: bool = False, preload: bool = True, world_size: int = 1):
+                 config_name: str, resume: bool = False, cache: bool = True, world_size: int = 1):
         """
         Trainer class for training and checkpointing of networks.
         :param dataset_name: The name of the dataset to use.
@@ -21,13 +21,15 @@ class ClassificationTrainer(Trainer):
         :param gpu_id: The gpu for this process to use.
         :param checkpoint_name: None if we should train from scratch, otherwise the model weights that should be used.
         """
-        super().__init__(dataset_name, fold, model_path, gpu_id, unique_folder_name, config_name, resume, preload,
+        super().__init__(dataset_name, fold, model_path, gpu_id, unique_folder_name, config_name, resume, cache,
                          world_size)
 
         class_names = read_json(f"{PREPROCESSED_ROOT}/{self.dataset_name}/id_to_label.json")
         self.class_names = [i for i in sorted(class_names.values())]
         self._last_val_accuracy = 0.
+        self._last_train_accuracy = 0.
         self._val_accuracy = 0.
+        self._train_accuracy = 0.
         self.softmax = nn.Softmax(dim=1)
 
     def get_augmentations(self) -> Tuple[Any, Any]:
@@ -52,12 +54,15 @@ class ClassificationTrainer(Trainer):
         """
         running_loss = 0.
         total_items = 0
+        correct_count = 0.
         # ForkedPdb().set_trace()
         log_image = epoch % 10 == 0
+        i = 0
         for data, labels, _ in tqdm(self.train_dataloader):
+            i += 1
             self.optim.zero_grad()
-            if log_image:
-                self.log_helper.log_augmented_image(data[0][0][100])
+            if log_image and i == 1:
+                self.log_helper.log_augmented_image(data[0][0][100].unsqueeze(0))
             labels = labels.to(self.device, non_blocking=True)
             data = data.to(self.device)
             batch_size = data.shape[0]
@@ -68,19 +73,24 @@ class ClassificationTrainer(Trainer):
             # update model
             loss.backward()
             self.optim.step()
+            predictions = torch.argmax(self.softmax(predictions), dim=1)
+            correct_count += torch.sum(predictions == labels)
             # gather data
             running_loss += loss.item() * batch_size
             total_items += batch_size
 
+        self._train_accuracy = correct_count / total_items
         return running_loss / total_items
 
     def post_epoch_log(self, epoch: int) -> Tuple:
         """
         Executed after each default logging cycle
         """
-        message = f"Val accuracy: {self._val_accuracy} --change-- {self._val_accuracy - self._last_val_accuracy}"
+        messageval = f"Val accuracy: {self._val_accuracy} --change-- {self._val_accuracy - self._last_val_accuracy}"
+        messagetrain = f"Train accuracy: {self._train_accuracy} --change-- {self._train_accuracy - self._last_train_accuracy}"
         self._last_val_accuracy = self._val_accuracy
-        return message,
+        self._last_train_accuracy = self._train_accuracy
+        return messageval, messagetrain
 
     # noinspection PyTypeChecker
     def eval_single_epoch(self, epoch) -> float:
@@ -93,9 +103,13 @@ class ClassificationTrainer(Trainer):
         correct_count = 0.
         total_items = 0
         all_predictions, all_labels = [], []
+        i = 0
         for data, labels, _ in tqdm(self.val_dataloader):
+            i += 1
             labels = labels.to(self.device, non_blocking=True)
             data = data.to(self.device)
+            if i == 1:
+                self.log_helper.log_net_structure(self.model, data)
             batch_size = data.shape[0]
             # do prediction and calculate loss
             predictions = self.model(data)
@@ -127,4 +141,4 @@ class ClassificationTrainer(Trainer):
         :return: The model to be used.
         """
         from classeg.extensions.tavr.training.model import ClassNet
-        return ClassNet(in_channels=10, out_channels=2)
+        return ClassNet(in_channels=10, out_channels=2).to(self.device)
