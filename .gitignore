@@ -167,3 +167,6 @@ slurm_jobs
 data_root
 data/
 mapped_ids_data.csv
+slurm_jobs
+*.csv
+*.out
