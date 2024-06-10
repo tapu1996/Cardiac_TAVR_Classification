@@ -15,6 +15,7 @@ from tqdm import tqdm
 from classeg.utils.utils import get_case_name_from_number
 import pickle
 from typing import List, Tuple, Union
+import warnings
 
 """
 Extensions require to keep class name the same for proper loading
@@ -82,7 +83,7 @@ class TAVRPreprocessor(Preprocessor):
         os.makedirs(target_directory, exist_ok=True)
         # load
         case_name = get_case_name_from_number(int(point_id)) # case_xxxxx
-        samples_for_row = [x for x in existing_samples if f"_{case_name.split('_')[1]}_0000_LV" in x]
+        samples_for_row = [x for x in existing_samples if f"_{case_name.split('_')[1]}_0000_" in x]
         samples_for_row = sorted(samples_for_row)
         samples_for_row = [sitk.ReadImage(x) for x in samples_for_row]
         if len(samples_for_row) == 0:
