@@ -14,6 +14,7 @@ from classeg.dataloading.datapoint import Datapoint
 from classeg.dataloading.dataset import PipelineDataset
 from classeg.utils.constants import PREPROCESSED_ROOT, RAW_ROOT, SEGMENTATION, CLASSIFICATION, SELF_SUPERVISED
 import importlib
+from torch.utils.data import WeightedRandomSampler, DistributedSampler
 
 
 def import_from_recursive(from_package: str, class_name: str) -> Any:
@@ -431,7 +432,7 @@ def get_dataloaders_from_fold(dataset_name: str,
     :param kwargs: Can overwrite some settings.
     :return: Train and val dataloaders.
     """
-
+    import numpy as np
     config = get_config_from_dataset(dataset_name, config_name)
 
     train_points, val_points = get_preprocessed_datapoints(dataset_name, fold, cache=cache) if preprocessed_data \
@@ -445,10 +446,21 @@ def get_dataloaders_from_fold(dataset_name: str,
     if 'sampler' in kwargs and kwargs['sampler'] is not None:
         assert 'rank' in kwargs and 'world_size' in kwargs, \
             "If supplying 'sampler' you must also supply 'world_size' and 'rank'"
-        train_sampler = kwargs['sampler'](train_dataset, rank=kwargs['rank'],
-                                          num_replicas=kwargs['world_size'], shuffle=True)
-        val_sampler = kwargs['sampler'](val_dataset, rank=kwargs['rank'],
-                                        num_replicas=kwargs['world_size'], shuffle=False)
+        if kwargs['sampler'] == DistributedSampler:
+            train_sampler = DistributedSampler(train_dataset, rank=kwargs['rank'],
+                                            num_replicas=kwargs['world_size'], shuffle=True)
+            val_sampler = DistributedSampler(val_dataset, rank=kwargs['rank'],
+                                            num_replicas=kwargs['world_size'], shuffle=False)
+        elif kwargs["sampler"] == WeightedRandomSampler:
+            print("Using weighted sampler")
+            train_classes = [x.label for x in train_dataset.datapoints]
+            class_sample_count = np.array([len(np.where(train_classes == t)[0]) for t in np.unique(train_classes)])
+            weight = 1. / class_sample_count
+            samples_weight = np.array([weight[t] for t in train_classes])
+            samples_weight = torch.from_numpy(samples_weight)
+            train_sampler = WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
+        else:
+            print("Unimplmeneted sampler type")
 
     batch_size = kwargs.get('batch_size', config['batch_size'])
     if 'world_size' in kwargs:
