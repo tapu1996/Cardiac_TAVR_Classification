@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from classeg.utils.constants import PREPROCESSED_ROOT
 from classeg.utils.utils import read_json
 from tqdm import tqdm
-from monai.transforms import Compose, CenterSpatialCrop
+from monai.transforms import Compose, CenterSpatialCrop, Lambda
 from classeg.utils.utils import get_dataloaders_from_fold
 from torch.utils.data import WeightedRandomSampler, DistributedSampler
 
@@ -56,9 +56,18 @@ class ClassificationTrainer(Trainer):
         )
 
     def get_augmentations(self) -> Tuple[Any, Any]:
+        def binarize(x):
+            bg = x[0, 0, 0, 0]
+            x[x==bg] = 0
+            x[x!=0]=1
+            return x
         
+        train = Compose([
+            Lambda(func=lambda x:binarize(x)),
+            CenterSpatialCrop(roi_size=self.config["target_size"])
+        ])
 
-        return CenterSpatialCrop(roi_size=self.config["target_size"]), CenterSpatialCrop(roi_size=self.config["target_size"])
+        return train, train
 
     def train_single_epoch(self, epoch) -> float:
         """
