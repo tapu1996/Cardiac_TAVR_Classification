@@ -7,9 +7,9 @@ class ClassNetLSTM(nn.Module):
     def __init__(self, 
                  in_channels, 
                  out_channels,
-                 hidden_size=1000,
-                 lstm_layers=2,
-                 latent_size=512
+                 hidden_size=512,
+                 lstm_layers=1,
+                 latent_size=256
                  ):
         super(ClassNetLSTM, self).__init__()
         self.dropout_prob = 0.25
@@ -22,8 +22,7 @@ class ClassNetLSTM(nn.Module):
             self.conv_block(16, 32),
             self.conv_block(32, 64),
             self.conv_block(64, 128),
-            self.conv_block(128, 256),
-            self.conv_block(256, latent_size)
+            self.conv_block(128, latent_size)
         )
 
         # self.fc1 = nn.Linear()
@@ -50,21 +49,34 @@ class ClassNetLSTM(nn.Module):
         )
 
     def forward(self, x):
-        # Encoder
-        h0 = torch.zeros(self.lstm_layers, x.size(0), self.hidden_size).to(x.device)  # (num_layers, batch, hidden_size)
-        c0 = torch.zeros(self.lstm_layers, x.size(0), self.hidden_size).to(x.device)
-        outputs = [] # [B, F]
+        x = torch.cat([x[:, 0:1, ...], x[:, 5:6, ...]], dim=1)
+
+        # # x = x[: (0, 5), ...]
+        # b, t, *r = x.shape
+        # x = x.view(b*t, 1, *r) # batchify phase
+
+        # x = self.encoder(x)
+
+        # flat = F.max_pool3d(x, kernel_size=x.size()[2:])
+        b, t, *r = x.shape
+        o = []
         for i in range(x.shape[1]):
             d = x[:, i:i+1, ...]
             d = self.encoder(d)
+
             # Bottleneck
+            # bottleneck = self.bottleneck(d)
             flat = F.max_pool3d(d, kernel_size=d.size()[2:])
             # Flatten bottleneck output
-            flat = flat.view(flat.size(0), -1)  # [B, features]
-            outputs.append(flat)
+            flat = flat.view(flat.size(0), 1, -1)  # [B, features]
+            o.append(flat)
+        # # Dense layers
+        o = torch.concat(o, dim=1)
 
-        features = torch.stack(outputs, dim=1) # [B, F] -> [B, T, F]
-        lstm_out, *_ = self.lstm(features, (h0, c0))
+        h0 = torch.zeros(self.lstm_layers, b, self.hidden_size).to(x.device)  # (num_layers, batch, hidden_size)
+        c0 = torch.zeros(self.lstm_layers, b, self.hidden_size).to(x.device)
+
+        lstm_out, *_ = self.lstm(flat, (h0, c0))
 
         # Only use the output of the last time step
         last_time_step_out = lstm_out[:, -1, :]

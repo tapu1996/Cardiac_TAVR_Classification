@@ -11,15 +11,13 @@ class ClassNetEmbedding(nn.Module):
 
         self.encoder = nn.Sequential(
             self.conv_block(in_channels, 16),
-            self.conv_block(16, 64),
-            self.conv_block(64, 128),
-            self.conv_block(128, 256),
-            self.conv_block(256, 512)
+            self.conv_block(16, 32),
+            self.conv_block(32, 64)
         )
 
         # self.fc1 = nn.Linear()
         self.classifier = nn.Sequential(
-            nn.Conv1d(512*10, 256, kernel_size=3),
+            nn.Linear(64*10, 256),
             nn.ReLU(),
             nn.Linear(256, 128),
             nn.ReLU(),
@@ -43,6 +41,7 @@ class ClassNetEmbedding(nn.Module):
 
     def forward(self, x):
         # Encoder
+        x = x[: (0, 5), ...]
         b, t, *r = x.shape
         x = x.view(b*t, 1, *r) # batchify phase
 
@@ -53,6 +52,22 @@ class ClassNetEmbedding(nn.Module):
         flat = flat.view(b, -1)  # [B, features] - take phase out of batch
 
         return self.classifier(flat)
+        # o = []
+        # for i in range(x.shape[1]):
+        #     print(i)
+        #     d = x[:, i:i+1, ...]
+        #     d = self.encoder(d)
+
+        #     # Bottleneck
+        #     # bottleneck = self.bottleneck(d)
+        #     flat = F.max_pool3d(d, kernel_size=d.size()[2:])
+        #     # Flatten bottleneck output
+        #     flat = flat.view(flat.size(0), -1)  # [B, features]
+        #     o.append(flat)
+        # # # Dense layers
+        # o = torch.concat(o, dim=1)
+        # print(o.shape)
+        # return self.classifier(o)
 
 
 # Example usage

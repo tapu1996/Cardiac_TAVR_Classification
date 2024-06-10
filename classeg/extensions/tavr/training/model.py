@@ -42,6 +42,8 @@ class ClassNet(nn.Module):
 
     def forward(self, x):
         # Encoder
+        x = torch.cat([x[:, 0:1, ...], x[:, 5:6, ...]], dim=1)
+        
         enc1 = self.encoder1(x)
         enc2 = self.encoder2(enc1)
         enc3 = self.encoder3(enc2)

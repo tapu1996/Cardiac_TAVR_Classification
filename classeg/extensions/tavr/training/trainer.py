@@ -3,11 +3,14 @@ from typing import Tuple, Any
 import torch
 import torch.nn as nn
 from classeg.training.trainer import Trainer, log
+from torch.optim import SGD
 import torchvision.transforms as transforms
 from classeg.utils.constants import PREPROCESSED_ROOT
 from classeg.utils.utils import read_json
 from tqdm import tqdm
-
+from monai.transforms import Compose, CenterSpatialCrop
+from classeg.utils.utils import get_dataloaders_from_fold
+from torch.utils.data import WeightedRandomSampler, DistributedSampler
 
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
@@ -32,20 +35,30 @@ class ClassificationTrainer(Trainer):
         self._train_accuracy = 0.
         self.softmax = nn.Softmax(dim=1)
 
-    def get_augmentations(self) -> Tuple[Any, Any]:
-        # train_aug = transforms.Compose([
-        #     transforms.Resize(self.config.get('target_size', [512, 512]), antialias=True),
-        #     transforms.RandomRotation(degrees=30),
-        #     transforms.RandomAdjustSharpness(1.3),
-        #     transforms.RandomVerticalFlip(p=0.25),
-        #     transforms.RandomHorizontalFlip(p=0.25),
-        #     transforms.RandomErasing(p=0.25, scale=(0.02, 0.33))
-        # ])
-        # val_aug = transforms.Compose([
-        #     transforms.Resize(self.config.get('target_size', [512, 512]), antialias=True)
-        # ])
 
-        return None, None
+    def get_dataloaders(self):
+        """
+        This method is responsible for creating the augmentation and then fetching dataloaders.
+
+        :return: Train and val dataloaders.
+        """
+        train_transforms, val_transforms = self.get_augmentations()
+        return get_dataloaders_from_fold(
+            self.dataset_name,
+            self.fold,
+            train_transforms=train_transforms,
+            val_transforms=val_transforms,
+            sampler=(WeightedRandomSampler if self.world_size == 1 else DistributedSampler),
+            cache=self.cache,
+            rank=self.device,
+            world_size=self.world_size,
+            config_name=self.config_name
+        )
+
+    def get_augmentations(self) -> Tuple[Any, Any]:
+        
+
+        return CenterSpatialCrop(roi_size=self.config["target_size"]), CenterSpatialCrop(roi_size=self.config["target_size"])
 
     def train_single_epoch(self, epoch) -> float:
         """
@@ -55,8 +68,9 @@ class ClassificationTrainer(Trainer):
         running_loss = 0.
         total_items = 0
         correct_count = 0.
+        all_predictions, all_labels = [], []
         # ForkedPdb().set_trace()
-        log_image = epoch % 10 == 0
+        log_image = True
         i = 0
         for data, labels, _ in tqdm(self.train_dataloader):
             i += 1
@@ -75,10 +89,13 @@ class ClassificationTrainer(Trainer):
             self.optim.step()
             predictions = torch.argmax(self.softmax(predictions), dim=1)
             correct_count += torch.sum(predictions == labels)
+            all_predictions.extend(predictions.tolist())
+            all_labels.extend(labels.tolist())
             # gather data
             running_loss += loss.item() * batch_size
             total_items += batch_size
 
+        self.log_helper.plot_confusion_matrix(all_predictions, all_labels, self.class_names, set_name="train")
         self._train_accuracy = correct_count / total_items
         return running_loss / total_items
 
@@ -108,7 +125,7 @@ class ClassificationTrainer(Trainer):
             i += 1
             labels = labels.to(self.device, non_blocking=True)
             data = data.to(self.device)
-            if i == 1:
+            if i == 1 and epoch%10 == 0:
                 self.log_helper.log_net_structure(self.model, data)
             batch_size = data.shape[0]
             # do prediction and calculate loss
@@ -134,6 +151,14 @@ class ClassificationTrainer(Trainer):
         if self.device == 0:
             log("Loss being used is nn.CrossEntropyLoss()")
         return nn.CrossEntropyLoss()
+    
+    def get_optim(self) -> Any:
+        return SGD(
+            self.model.parameters(),
+            lr=self.config.get("lr"),
+            momentum=self.config["momentum"],
+            weight_decay=self.config["weight_decay"]
+        )
 
     def get_model(self, name: str) -> nn.Module:
         """
@@ -142,7 +167,7 @@ class ClassificationTrainer(Trainer):
         """
         if name in ["ClassNet", "classnet", "cn"]:
             from classeg.extensions.tavr.training.model import ClassNet
-            return ClassNet(in_channels=10, out_channels=2).to(self.device)
+            return ClassNet(in_channels=2, out_channels=2).to(self.device)
         elif name in ["embed", "ClassNetEmbed", "ClassNetEmbedding", "cne"]:
             from classeg.extensions.tavr.training.embed_model import ClassNetEmbedding
             return ClassNetEmbedding(in_channels=1, out_channels=2).to(self.device)
