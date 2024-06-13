@@ -34,6 +34,7 @@ class ClassificationTrainer(Trainer):
         self._val_accuracy = 0.
         self._train_accuracy = 0.
         self.softmax = nn.Softmax(dim=1)
+        self.sigmoid = nn.Sigmoid()
 
 
     def get_dataloaders(self):
@@ -63,11 +64,14 @@ class ClassificationTrainer(Trainer):
             return x
         
         train = Compose([
-            Lambda(func=lambda x:binarize(x)),
+            # Lambda(func=lambda x:binarize(x)),
             CenterSpatialCrop(roi_size=self.config["target_size"])
         ])
 
         return train, train
+
+        # def _save_self_file(self):
+
 
     def train_single_epoch(self, epoch) -> float:
         """
@@ -86,17 +90,23 @@ class ClassificationTrainer(Trainer):
             self.optim.zero_grad()
             if log_image and i == 1:
                 self.log_helper.log_augmented_image(data[0][0][100].unsqueeze(0))
-            labels = labels.to(self.device, non_blocking=True)
+            labels = labels.to(self.device, non_blocking=True).float()
             data = data.to(self.device)
             batch_size = data.shape[0]
             # ForkedPdb().set_trace()
             # do prediction and calculate loss
-            predictions = self.model(data)
+            predictions = self.model(data).squeeze()
+            # print(predictions)
+            # print(labels)
+            #print(labels.shape)
             loss = self.loss(predictions, labels)
             # update model
             loss.backward()
             self.optim.step()
-            predictions = torch.argmax(self.softmax(predictions), dim=1)
+            #predictions = torch.argmax(self.softmax(predictions), dim=1)
+            print(self.sigmoid(predictions))
+            predictions = torch.round(self.sigmoid(predictions))
+            print(predictions)
             correct_count += torch.sum(predictions == labels)
             all_predictions.extend(predictions.tolist())
             all_labels.extend(labels.tolist())
@@ -132,18 +142,19 @@ class ClassificationTrainer(Trainer):
         i = 0
         for data, labels, _ in tqdm(self.val_dataloader):
             i += 1
-            labels = labels.to(self.device, non_blocking=True)
+            labels = labels.float().to(self.device, non_blocking=True)
             data = data.to(self.device)
             if i == 1 and epoch%10 == 0:
                 self.log_helper.log_net_structure(self.model, data)
             batch_size = data.shape[0]
             # do prediction and calculate loss
-            predictions = self.model(data)
+            predictions = self.model(data).squeeze()
             loss = self.loss(predictions, labels)
             running_loss += loss.item() * batch_size
             # analyze
-            predictions = torch.argmax(self.softmax(predictions), dim=1)
+            #predictions = torch.argmax(self.softmax(predictions), dim=1)
             # labels = torch.argmax(labels, dim=1)
+            predictions = torch.round(self.sigmoid(predictions))
             all_predictions.extend(predictions.tolist())
             all_labels.extend(labels.tolist())
             correct_count += torch.sum(predictions == labels)
@@ -152,6 +163,17 @@ class ClassificationTrainer(Trainer):
         self._val_accuracy = correct_count / total_items
         return running_loss / total_items
 
+    def get_lr_scheduler(self):
+        """
+        Creates and returns a learning rate scheduler.
+
+        :return: Learning rate scheduler.
+        """
+        scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size=5, gamma=0.95)
+        if self.device in [0, "cpu"]:
+            log(f"Scheduler being used is {scheduler}")
+        return scheduler
+
     def get_loss(self) -> nn.Module:
         """
         Build the criterion object.
@@ -159,15 +181,24 @@ class ClassificationTrainer(Trainer):
         """
         if self.device == 0:
             log("Loss being used is nn.CrossEntropyLoss()")
-        return nn.CrossEntropyLoss()
+        #return nn.CrossEntropyLoss()
+        return nn.BCEWithLogitsLoss()
     
     def get_optim(self) -> Any:
-        return SGD(
-            self.model.parameters(),
-            lr=self.config.get("lr"),
-            momentum=self.config["momentum"],
-            weight_decay=self.config["weight_decay"]
-        )
+        optim = self.config.get("optim", "adam")
+        if optim in ["sgd", "s", "SGD"]:
+            return SGD(
+                self.model.parameters(),
+                lr=self.config.get("lr"),
+                momentum=self.config["momentum"],
+                weight_decay=self.config["weight_decay"]
+            )
+        else:
+            return torch.optim.Adam(
+                self.model.parameters(),
+                lr=self.config.get("lr"),
+                weight_decay=self.config["weight_decay"]
+            )
 
     def get_model(self, name: str) -> nn.Module:
         """
@@ -176,11 +207,39 @@ class ClassificationTrainer(Trainer):
         """
         if name in ["ClassNet", "classnet", "cn"]:
             from classeg.extensions.tavr.training.model import ClassNet
-            return ClassNet(in_channels=2, out_channels=2).to(self.device)
+            model = ClassNet
+            args = {
+                "in_channels": 2,
+                "out_channels": 1
+            }
         elif name in ["embed", "ClassNetEmbed", "ClassNetEmbedding", "cne"]:
             from classeg.extensions.tavr.training.embed_model import ClassNetEmbedding
-            return ClassNetEmbedding(in_channels=1, out_channels=2).to(self.device)
+            model = ClassNetEmbedding
+            args = {
+                "in_channels": 2,
+                "out_channels": 1
+            }
         elif name in ["lstm", "ClassNetLstm", "cnl"]:
             from classeg.extensions.tavr.training.lstm_model import ClassNetLSTM
-            return ClassNetLSTM(in_channels=1, out_channels=2).to(self.device)
-        
+            model = ClassNetLSTM
+            args = {
+                "in_channels": 2,
+                "out_channels": 1
+            }
+        elif name in ["multiview", "mv"]:
+            from classeg.extensions.tavr.training.multi_view import MultiView
+            model = MultiView
+            args = {
+                "in_channels": 1,
+                "out_channels": 1
+            }
+        elif name in ["eff","efficientnet"]:
+            from efficientnet_pytorch_3d import EfficientNet3D
+            model = EfficientNet3D.from_name("efficientnet-b0", override_params={'num_classes': 1}, in_channels=10)
+
+        # import inspect
+        # import shutil
+        # print(inspect.getfile(model.__class__))
+        # shutil.copy2(inspect.getfile(model.__class__), self.output_dir)
+        #return model(**args).to(self.device)
+        return model.to(self.device)
