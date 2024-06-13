@@ -11,11 +11,11 @@ from tqdm import tqdm
 from monai.transforms import Compose, CenterSpatialCrop, Lambda
 from classeg.utils.utils import get_dataloaders_from_fold
 from torch.utils.data import WeightedRandomSampler, DistributedSampler
-
+from classeg.extensions.tavr.training.metadata_processing import MetadataProcessing
 
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
-                 config_name: str, resume: bool = False, cache: bool = True, world_size: int = 1):
+                 config_name: str, resume: bool = False, cache: bool = True, world_size: int = 1, use_metadata: str = None):
         """
         Trainer class for training and checkpointing of networks.
         :param dataset_name: The name of the dataset to use.
@@ -35,6 +35,10 @@ class ClassificationTrainer(Trainer):
         self._val_accuracy = 0.
         self._train_accuracy = 0.
         self.softmax = nn.Softmax(dim=1)
+        if use_metadata:
+            self.metadata_manager = MetadataProcessing(use_metadata)
+        else:
+            self.metadata_manager = None
 
 
     def get_dataloaders(self):
