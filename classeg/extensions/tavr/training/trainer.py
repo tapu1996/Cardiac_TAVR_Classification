@@ -13,7 +13,7 @@ from classeg.utils.utils import get_dataloaders_from_fold
 from torch.utils.data import WeightedRandomSampler, DistributedSampler
 from classeg.extensions.tavr.training.metadata_processing import MetadataProcessing
 from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
-
+import warnings
 
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
