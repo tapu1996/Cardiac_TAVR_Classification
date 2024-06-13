@@ -82,7 +82,8 @@ class ClassificationTrainer(Trainer):
         total_items = 0
         correct_count = 0.
         all_predictions, all_labels = [], []
-        # ForkedPdb().set_trace()
+        # ForkedPdb().set_trace() 
+        
         log_image = True
         i = 0
         for data, labels, _ in tqdm(self.train_dataloader):
