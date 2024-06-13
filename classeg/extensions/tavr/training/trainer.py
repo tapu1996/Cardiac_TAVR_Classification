@@ -12,6 +12,7 @@ from monai.transforms import Compose, CenterSpatialCrop, Lambda
 from classeg.utils.utils import get_dataloaders_from_fold
 from torch.utils.data import WeightedRandomSampler, DistributedSampler
 
+
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
                  config_name: str, resume: bool = False, cache: bool = True, world_size: int = 1):
@@ -35,7 +36,6 @@ class ClassificationTrainer(Trainer):
         self._train_accuracy = 0.
         self.softmax = nn.Softmax(dim=1)
 
-
     def get_dataloaders(self):
         """
         This method is responsible for creating the augmentation and then fetching dataloaders.
@@ -58,12 +58,12 @@ class ClassificationTrainer(Trainer):
     def get_augmentations(self) -> Tuple[Any, Any]:
         def binarize(x):
             bg = x[0, 0, 0, 0]
-            x[x==bg] = 0
-            x[x!=0]=1
+            x[x == bg] = 0
+            x[x != 0] = 1
             return x
-        
+
         train = Compose([
-            Lambda(func=lambda x:binarize(x)),
+            Lambda(func=lambda x: binarize(x)),
             CenterSpatialCrop(roi_size=self.config["target_size"])
         ])
 
@@ -134,7 +134,7 @@ class ClassificationTrainer(Trainer):
             i += 1
             labels = labels.to(self.device, non_blocking=True)
             data = data.to(self.device)
-            if i == 1 and epoch%10 == 0:
+            if i == 1 and epoch % 10 == 0:
                 self.log_helper.log_net_structure(self.model, data)
             batch_size = data.shape[0]
             # do prediction and calculate loss
@@ -160,7 +160,7 @@ class ClassificationTrainer(Trainer):
         if self.device == 0:
             log("Loss being used is nn.CrossEntropyLoss()")
         return nn.CrossEntropyLoss()
-    
+
     def get_optim(self) -> Any:
         return SGD(
             self.model.parameters(),
@@ -183,4 +183,3 @@ class ClassificationTrainer(Trainer):
         elif name in ["lstm", "ClassNetLstm", "cnl"]:
             from classeg.extensions.tavr.training.lstm_model import ClassNetLSTM
             return ClassNetLSTM(in_channels=1, out_channels=2).to(self.device)
-        
