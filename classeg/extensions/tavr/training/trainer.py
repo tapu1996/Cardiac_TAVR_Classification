@@ -12,6 +12,7 @@ from monai.transforms import Compose, CenterSpatialCrop, Lambda
 from classeg.utils.utils import get_dataloaders_from_fold
 from torch.utils.data import WeightedRandomSampler, DistributedSampler
 
+
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
                  config_name: str, resume: bool = False, cache: bool = True, world_size: int = 1):
@@ -34,7 +35,6 @@ class ClassificationTrainer(Trainer):
         self._val_accuracy = 0.
         self._train_accuracy = 0.
         self.softmax = nn.Softmax(dim=1)
-        self.sigmoid = nn.Sigmoid()
 
 
     def get_dataloaders(self):
@@ -59,12 +59,12 @@ class ClassificationTrainer(Trainer):
     def get_augmentations(self) -> Tuple[Any, Any]:
         def binarize(x):
             bg = x[0, 0, 0, 0]
-            x[x==bg] = 0
-            x[x!=0]=1
+            x[x == bg] = 0
+            x[x != 0] = 1
             return x
-        
+
         train = Compose([
-            # Lambda(func=lambda x:binarize(x)),
+            Lambda(func=lambda x: binarize(x)),
             CenterSpatialCrop(roi_size=self.config["target_size"])
         ])
 
@@ -144,7 +144,7 @@ class ClassificationTrainer(Trainer):
             i += 1
             labels = labels.float().to(self.device, non_blocking=True)
             data = data.to(self.device)
-            if i == 1 and epoch%10 == 0:
+            if i == 1 and epoch % 10 == 0:
                 self.log_helper.log_net_structure(self.model, data)
             batch_size = data.shape[0]
             # do prediction and calculate loss

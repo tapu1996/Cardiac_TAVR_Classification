@@ -40,7 +40,7 @@ class ClassNet(nn.Module):
             nn.MaxPool3d(kernel_size=2, stride=2),
         )
 
-    def forward(self, x):
+    def forward(self, x, metadata=None):
         # Encoder
         x = torch.cat([x[:, 0:1, ...], x[:, 5:6, ...]], dim=1)
         
@@ -55,8 +55,9 @@ class ClassNet(nn.Module):
         flat = F.max_pool3d(bottleneck, kernel_size=bottleneck.size()[2:])
         # Flatten bottleneck output
         flat = flat.view(flat.size(0), -1)  # [B, features]
+        input = torch.stack([flat, metadata], dim=1)
         # # Dense layers
-        return self.classifier(flat)
+        return self.classifier(input)
 
 
 # Example usage
