@@ -1,3 +1,5 @@
+from typing import List
+
 import pandas as pd
 
 DROP = [
@@ -136,14 +138,16 @@ class MetadataProcessing:
         for column in fill_by_mode:
             metadata[column] = metadata[column].fillna(metadata[column].mode()[0])
 
-    def get_case_metadata(self, case_name: str):
+    def get_case_metadata(self, case_name: List[str]):
         patient_ids = [int(name.split("_")[1]) for name in case_name]
-        return self.metadata.loc[self.metadata['id'] == patient_ids].drop("id", axis=1).values
+        # return self.metadata.loc[self.metadata['id'] == patient_ids].drop("id", axis=1).values
+        return self.metadata.loc[self.metadata['id'].isin(patient_ids)].drop("id", axis=1).values
 
     def __repr__(self):
         return str(self.metadata.columns)
 
 
 if __name__ == "__main__":
-    p = MetadataProcessing("/home/student/andrewheschl/Cardiac_TAVR_Classification/mapped_ids_data.csv")
-    print(p.get_case_metadata(["case_00124", "case_00123"]))
+    p = MetadataProcessing("/home/andrewheschl/PycharmProjects/Cardiac_TAVR_Classification/mapped_ids_data.csv")
+    r = p.get_case_metadata(["case_00124", "case_00123"])
+    print(type(r), r.shape, r[0])

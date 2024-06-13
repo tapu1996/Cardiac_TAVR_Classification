@@ -4,9 +4,10 @@ import torch.nn.functional as F
 
 
 class ClassNetEmbedding(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, metadata_shape=21):
         super(ClassNetEmbedding, self).__init__()
         self.dropout_prob = 0.25
+        self.metadata_shape = metadata_shape
         # Encoder (downsampling path)
 
         self.encoder = nn.Sequential(
@@ -17,6 +18,9 @@ class ClassNetEmbedding(nn.Module):
             self.conv_block(128, 256),
         )
 
+        self.metadata_projector = nn.Linear(
+            metadata_shape+256, 256
+        )
         # self.fc1 = nn.Linear()
         self.classifier = nn.Sequential(
             nn.Linear(256, 128),
@@ -38,20 +42,23 @@ class ClassNetEmbedding(nn.Module):
             nn.MaxPool3d(kernel_size=2, stride=2),
         )
 
-    def forward(self, x):
+    def forward(self, x, metadata=None):
         # Encoder
-        #x = x[: (0, 4), ...]
+        # x = x[: (0, 4), ...]
         x = torch.cat([x[:, 0:1, ...], x[:, 4:5, ...]], dim=1)
-        #x = torch.sum(x, dim=1).unsqueeze(1)
+        # x = torch.sum(x, dim=1).unsqueeze(1)
         b, t, *r = x.shape
-        #x = x.view(b*t, 1, *r) # batchify phase
+        # x = x.view(b*t, 1, *r) # batchify phase
 
         x = self.encoder(x)
 
         flat = F.max_pool3d(x, kernel_size=x.size()[2:])
 
         flat = flat.view(b, -1)  # [B, features] - take phase out of batch
-
+        if metadata is not None:
+            metadata = metadata.view(b, -1)
+            flat = torch.cat([flat, metadata], dim=1)
+            flat = self.metadata_projector(flat)
         return self.classifier(flat)
         # o = []
         # for i in range(x.shape[1]):

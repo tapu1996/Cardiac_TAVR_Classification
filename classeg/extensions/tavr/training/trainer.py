@@ -12,10 +12,13 @@ from monai.transforms import Compose, CenterSpatialCrop, Lambda
 from classeg.utils.utils import get_dataloaders_from_fold
 from torch.utils.data import WeightedRandomSampler, DistributedSampler
 from classeg.extensions.tavr.training.metadata_processing import MetadataProcessing
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
+
 
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
-                 config_name: str, resume: bool = False, cache: bool = True, world_size: int = 1, use_metadata: str = None):
+                 config_name: str, resume: bool = False, cache: bool = True, world_size: int = 1,
+                 use_metadata: str = None):
         """
         Trainer class for training and checkpointing of networks.
         :param dataset_name: The name of the dataset to use.
@@ -34,12 +37,30 @@ class ClassificationTrainer(Trainer):
         self._last_train_accuracy = 0.
         self._val_accuracy = 0.
         self._train_accuracy = 0.
+
+        self._train_recall = 0.
+        self._last_train_recall = 0.
+
+        self._train_precision = 0.
+        self._last_train_precision = 0.
+
+        self._train_f1 = 0.
+        self._last_train_f1 = 0.
+
+        self._val_recall = 0.
+        self._last_val_recall = 0.
+
+        self._val_precision = 0.
+        self._last_val_precision = 0.
+
+        self._val_f1 = 0.
+        self._last_val_f1 = 0.
+
         self.softmax = nn.Softmax(dim=1)
         if use_metadata:
             self.metadata_manager = MetadataProcessing(use_metadata)
         else:
             self.metadata_manager = None
-
 
     def get_dataloaders(self):
         """
@@ -76,7 +97,6 @@ class ClassificationTrainer(Trainer):
 
         # def _save_self_file(self):
 
-
     def train_single_epoch(self, epoch) -> float:
         """
         The training of each epoch is done here.
@@ -87,28 +107,33 @@ class ClassificationTrainer(Trainer):
         correct_count = 0.
         all_predictions, all_labels = [], []
         # ForkedPdb().set_trace() 
-        
+
         log_image = True
         i = 0
-        for data, labels, _ in tqdm(self.train_dataloader):
+        for data, labels, points in tqdm(self.train_dataloader):
             i += 1
             self.optim.zero_grad()
             if log_image and i == 1:
                 self.log_helper.log_augmented_image(data[0][0][100].unsqueeze(0))
             labels = labels.to(self.device, non_blocking=True).float()
-            data = data.to(self.device)
+            data = data.to(self.device, non_blovking=True)
+            metadata = None
+            if self.metadata_manager is not None:
+                metadata = self.metadata_manager.get_case_metadata([p.case_name for p in points])
+                metadata = torch.tensor(metadata, dtype=torch.float32).to(self.device)
+                # data = torch.cat([data, metadata], dim=1)
             batch_size = data.shape[0]
             # ForkedPdb().set_trace()
             # do prediction and calculate loss
-            predictions = self.model(data).squeeze()
+            predictions = self.model(data, metadata=metadata).squeeze()
             # print(predictions)
             # print(labels)
-            #print(labels.shape)
+            # print(labels.shape)
             loss = self.loss(predictions, labels)
             # update model
             loss.backward()
             self.optim.step()
-            #predictions = torch.argmax(self.softmax(predictions), dim=1)
+            # predictions = torch.argmax(self.softmax(predictions), dim=1)
             print(self.sigmoid(predictions))
             predictions = torch.round(self.sigmoid(predictions))
             print(predictions)
@@ -121,17 +146,39 @@ class ClassificationTrainer(Trainer):
 
         self.log_helper.plot_confusion_matrix(all_predictions, all_labels, self.class_names, set_name="train")
         self._train_accuracy = correct_count / total_items
+        self._train_recall = recall_score(all_labels, all_predictions)
+        self._train_precision = precision_score(all_labels, all_predictions)
+        self._train_f1 = f1_score(all_labels, all_predictions)
+
         return running_loss / total_items
 
     def post_epoch_log(self, epoch: int) -> Tuple:
         """
         Executed after each default logging cycle
         """
-        messageval = f"Val accuracy: {self._val_accuracy} --change-- {self._val_accuracy - self._last_val_accuracy}"
-        messagetrain = f"Train accuracy: {self._train_accuracy} --change-- {self._train_accuracy - self._last_train_accuracy}"
+        messages = ["------Accuracy------",
+                    f"Val accuracy: {self._val_accuracy} --change-- {self._val_accuracy - self._last_val_accuracy}",
+                    f"Train accuracy: {self._train_accuracy} --change-- {self._train_accuracy - self._last_train_accuracy}",
+                    "------Recall------",
+                    f"Val recall: {self._val_recall} --change-- {self._val_recall - self._last_val_recall}",
+                    f"Train recall: {self._train_recall} --change-- {self._train_recall - self._last_train_recall}",
+                    "------Precision------",
+                    f"Val precision: {self._val_precision} --change-- {self._val_precision - self._last_val_precision}",
+                    f"Train precision: {self._train_precision} --change-- {self._train_precision - self._last_train_precision}",
+                    "------F1------",
+                    f"Val f1: {self._val_f1} --change-- {self._val_f1 - self._last_val_f1}",
+                    f"Train f1: {self._train_f1} --change-- {self._train_f1 - self._last_train_f1}"]
+
         self._last_val_accuracy = self._val_accuracy
         self._last_train_accuracy = self._train_accuracy
-        return messageval, messagetrain
+        self._last_val_recall = self._val_recall
+        self._last_train_recall = self._train_recall
+        self._last_val_precision = self._val_precision
+        self._last_train_precision = self._train_precision
+        self._last_val_f1 = self._val_f1
+        self._last_train_f1 = self._train_f1
+
+        return tuple(messages)
 
     # noinspection PyTypeChecker
     def eval_single_epoch(self, epoch) -> float:
@@ -145,19 +192,24 @@ class ClassificationTrainer(Trainer):
         total_items = 0
         all_predictions, all_labels = [], []
         i = 0
-        for data, labels, _ in tqdm(self.val_dataloader):
+        for data, labels, points in tqdm(self.val_dataloader):
             i += 1
             labels = labels.float().to(self.device, non_blocking=True)
-            data = data.to(self.device)
+            data = data.to(self.device, non_blocking=True)
+            metadata = None
+            if self.metadata_manager is not None:
+                metadata = self.metadata_manager.get_case_metadata([p.case_name for p in points])
+                metadata = torch.tensor(metadata, dtype=torch.float32).to(self.device)
+                # data = torch.cat([data, metadata], dim=1)
             if i == 1 and epoch % 10 == 0:
                 self.log_helper.log_net_structure(self.model, data)
             batch_size = data.shape[0]
             # do prediction and calculate loss
-            predictions = self.model(data).squeeze()
+            predictions = self.model(data, metadata=metadata).squeeze()
             loss = self.loss(predictions, labels)
             running_loss += loss.item() * batch_size
             # analyze
-            #predictions = torch.argmax(self.softmax(predictions), dim=1)
+            # predictions = torch.argmax(self.softmax(predictions), dim=1)
             # labels = torch.argmax(labels, dim=1)
             predictions = torch.round(self.sigmoid(predictions))
             all_predictions.extend(predictions.tolist())
@@ -166,6 +218,10 @@ class ClassificationTrainer(Trainer):
             total_items += batch_size
         self.log_helper.plot_confusion_matrix(all_predictions, all_labels, self.class_names)
         self._val_accuracy = correct_count / total_items
+        self._val_recall = recall_score(all_labels, all_predictions)
+        self._val_precision = precision_score(all_labels, all_predictions)
+        self._val_f1 = f1_score(all_labels, all_predictions)
+
         return running_loss / total_items
 
     def get_lr_scheduler(self):
@@ -186,9 +242,9 @@ class ClassificationTrainer(Trainer):
         """
         if self.device == 0:
             log("Loss being used is nn.CrossEntropyLoss()")
-        #return nn.CrossEntropyLoss()
+        # return nn.CrossEntropyLoss()
         return nn.BCEWithLogitsLoss()
-    
+
     def get_optim(self) -> Any:
         optim = self.config.get("optim", "adam")
         if optim in ["sgd", "s", "SGD"]:
@@ -238,7 +294,7 @@ class ClassificationTrainer(Trainer):
                 "in_channels": 1,
                 "out_channels": 1
             }
-        elif name in ["eff","efficientnet"]:
+        elif name in ["eff", "efficientnet"]:
             from efficientnet_pytorch_3d import EfficientNet3D
             model = EfficientNet3D.from_name("efficientnet-b0", override_params={'num_classes': 1}, in_channels=10)
 
@@ -246,5 +302,5 @@ class ClassificationTrainer(Trainer):
         # import shutil
         # print(inspect.getfile(model.__class__))
         # shutil.copy2(inspect.getfile(model.__class__), self.output_dir)
-        #return model(**args).to(self.device)
+        # return model(**args).to(self.device)
         return model.to(self.device)
