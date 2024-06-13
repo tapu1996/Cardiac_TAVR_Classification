@@ -109,7 +109,7 @@ class ClassificationTrainer(Trainer):
         correct_count = 0.
         all_predictions, all_labels = [], []
         # ForkedPdb().set_trace() 
-
+        warnings.warn("metadata iml in progress - comment out the passing of metadsata to the model if you need tapo, it will crash for now")
         log_image = True
         i = 0
         for data, labels, points in tqdm(self.train_dataloader):
