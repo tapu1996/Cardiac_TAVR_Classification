@@ -18,7 +18,7 @@ from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_sc
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
                  config_name: str, resume: bool = False, cache: bool = True, world_size: int = 1,
-                 use_metadata: str = None):
+                 use_metadata: str = "/home/student/andrewheschl/Cardiac_TAVR_Classification/mapped_ids_data.csv"):
         """
         Trainer class for training and checkpointing of networks.
         :param dataset_name: The name of the dataset to use.
@@ -57,8 +57,10 @@ class ClassificationTrainer(Trainer):
         self._last_val_f1 = 0.
 
         self.softmax = nn.Softmax(dim=1)
+        self.sigmoid = nn.Sigmoid()
         if use_metadata:
             self.metadata_manager = MetadataProcessing(use_metadata)
+            log(f"Using metadata: {self.metadata_manager}")
         else:
             self.metadata_manager = None
 
@@ -116,7 +118,7 @@ class ClassificationTrainer(Trainer):
             if log_image and i == 1:
                 self.log_helper.log_augmented_image(data[0][0][100].unsqueeze(0))
             labels = labels.to(self.device, non_blocking=True).float()
-            data = data.to(self.device, non_blovking=True)
+            data = data.to(self.device, non_blocking=True)
             metadata = None
             if self.metadata_manager is not None:
                 metadata = self.metadata_manager.get_case_metadata([p.case_name for p in points])
@@ -277,9 +279,10 @@ class ClassificationTrainer(Trainer):
             from classeg.extensions.tavr.training.embed_model import ClassNetEmbedding
             model = ClassNetEmbedding
             args = {
-                "in_channels": 2,
+                "in_channels": 1,
                 "out_channels": 1
             }
+            model = model(**args)
         elif name in ["lstm", "ClassNetLstm", "cnl"]:
             from classeg.extensions.tavr.training.lstm_model import ClassNetLSTM
             model = ClassNetLSTM

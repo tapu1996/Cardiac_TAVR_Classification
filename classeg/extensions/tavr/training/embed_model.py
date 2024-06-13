@@ -45,7 +45,7 @@ class ClassNetEmbedding(nn.Module):
     def forward(self, x, metadata=None):
         # Encoder
         # x = x[: (0, 4), ...]
-        x = torch.cat([x[:, 0:1, ...], x[:, 4:5, ...]], dim=1)
+        x = torch.sum(x, dim=1).unsqueeze(1)
         # x = torch.sum(x, dim=1).unsqueeze(1)
         b, t, *r = x.shape
         # x = x.view(b*t, 1, *r) # batchify phase
@@ -56,7 +56,7 @@ class ClassNetEmbedding(nn.Module):
 
         flat = flat.view(b, -1)  # [B, features] - take phase out of batch
         if metadata is not None:
-            metadata = metadata.view(b, -1)
+            # metadata = metadata.view(b, -1)
             flat = torch.cat([flat, metadata], dim=1)
             flat = self.metadata_projector(flat)
         return self.classifier(flat)
