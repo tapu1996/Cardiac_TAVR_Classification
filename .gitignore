@@ -170,3 +170,5 @@ mapped_ids_data.csv
 slurm_jobs
 *.csv
 *.out
+*.pt
+*.pth

@@ -109,7 +109,6 @@ class ClassificationTrainer(Trainer):
         correct_count = 0.
         all_predictions, all_labels = [], []
         # ForkedPdb().set_trace() 
-        warnings.warn("metadata iml in progress - comment out the passing of metadsata to the model if you need tapo, it will crash for now")
         log_image = True
         i = 0
         for data, labels, points in tqdm(self.train_dataloader):
@@ -120,16 +119,14 @@ class ClassificationTrainer(Trainer):
             labels = labels.to(self.device, non_blocking=True).float()
             data = data.to(self.device, non_blocking=True)
             metadata = None
-            print(len(points), data.shape, labels.shape)
             if self.metadata_manager is not None:
                 metadata = self.metadata_manager.get_case_metadata([p.case_name for p in points])
                 metadata = torch.tensor(metadata, dtype=torch.float32).to(self.device)
-                print(metadata.shape)
                 # data = torch.cat([data, metadata], dim=1)
             batch_size = data.shape[0]
             # ForkedPdb().set_trace()
             # do prediction and calculate loss
-            predictions = self.model(data, metadata=None).squeeze()
+            predictions = self.model(data, metadata=metadata).squeeze()
             # print(predictions)
             # print(labels)
             # print(labels.shape)
@@ -138,14 +135,12 @@ class ClassificationTrainer(Trainer):
             loss.backward()
             self.optim.step()
             # predictions = torch.argmax(self.softmax(predictions), dim=1)
-            print(self.sigmoid(predictions))
             predictions = torch.round(self.sigmoid(predictions))
-            print(predictions)
             correct_count += torch.sum(predictions == labels)
             all_predictions.extend(predictions.tolist())
             all_labels.extend(labels.tolist())
             # gather data
-            running_loss += loss.item() * batch_size
+            running_loss += loss.detach().item() * batch_size
             total_items += batch_size
 
         self.log_helper.plot_confusion_matrix(all_predictions, all_labels, self.class_names, set_name="train")
@@ -209,9 +204,9 @@ class ClassificationTrainer(Trainer):
                 self.log_helper.log_net_structure(self.model, data)
             batch_size = data.shape[0]
             # do prediction and calculate loss
-            predictions = self.model(data, metadata=None).squeeze()
+            predictions = self.model(data, metadata=metadata).squeeze()
             loss = self.loss(predictions, labels)
-            running_loss += loss.item() * batch_size
+            running_loss += loss.detach().item() * batch_size
             # analyze
             # predictions = torch.argmax(self.softmax(predictions), dim=1)
             # labels = torch.argmax(labels, dim=1)
@@ -284,7 +279,6 @@ class ClassificationTrainer(Trainer):
                 "in_channels": 1,
                 "out_channels": 1
             }
-            model = model(**args)
         elif name in ["lstm", "ClassNetLstm", "cnl"]:
             from classeg.extensions.tavr.training.lstm_model import ClassNetLSTM
             model = ClassNetLSTM
@@ -307,6 +301,14 @@ class ClassificationTrainer(Trainer):
                 "in_channels": 1,
                 "out_channels": 1
             }
+        elif name in ["pretrainedmv", "premv"]:
+            from classeg.extensions.tavr.training.pretrained_multi_view import PretrainedModelMV
+            model = PretrainedModelMV
+            args = {
+                "in_channels": 1,
+                "out_channels": 1
+            }
+            
 
         # import inspect
         # import shutil

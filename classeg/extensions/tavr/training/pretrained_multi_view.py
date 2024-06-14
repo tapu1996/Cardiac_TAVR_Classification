@@ -4,10 +4,9 @@ import torch.nn.functional as F
 from nnunetv2.utilities.plans_handling.plans_handler import *
 from nnunetv2.utilities.get_network_from_plans import get_network_from_plans
 
-class PretrainedModel(nn.Module):
+class PretrainedModelMV(nn.Module):
     def __init__(self, in_channels, out_channels, metadata_shape=21):
-        super(PretrainedModel, self).__init__()
-        self.firstconv = nn.Conv3d(10,1,3,1,1)
+        super(PretrainedModelMV, self).__init__()
         self.Pretrainedencoder = torch.load("/home/student/andrewheschl/Cardiac_TAVR_Classification/modelEncoder.pt")
         # self.Pretrainedencoder = PretrainedModel.pre_encoder()
         self.conv_reduce = nn.Sequential(
@@ -27,20 +26,17 @@ class PretrainedModel(nn.Module):
         #     self.conv_block(128, 256),
         # )
 
-        self.metadata_projector = nn.Sequential(
-            nn.Linear(metadata_shape+320, 320),
-            nn.LeakyReLU()
+        self.metadata_projector = nn.Linear(
+            metadata_shape+320, 320
         )
         # self.fc1 = nn.Linear()
         self.classifier = nn.Sequential(
-            nn.Linear(320, 128),
+            nn.Linear(10*320, 128),
             nn.LeakyReLU(),
-            nn.Dropout(0.2),
             nn.Linear(128, 64),
             nn.LeakyReLU(),
             nn.Linear(64, 32),
             nn.LeakyReLU(),
-            nn.Dropout(0.2),
             nn.Linear(32, out_channels)
         )
         #self.freeze()
@@ -79,42 +75,18 @@ class PretrainedModel(nn.Module):
         )
 
     def forward(self, x, metadata=None):
-        # Encoder
-        # x = x[: (0, 5), ...]
-        # x = torch.sum(x, dim=1).unsqueeze(1)
-        # x = torch.sum(x, dim=1).unsqueeze(1)
-        b, t, *r = x.shape
-        # x = x.view(b*t, 1, *r) # batchify phase
-        x = self.firstconv(x)
-        x = self.Pretrainedencoder(x)[-1]
-        # print(x.shape)
-        x = self.conv_reduce(x)
-        # print(x.shape)
+        o = []
+        for i in range(0,10):
+            x = x[:, i:i+1, ...]
+            b, t, *r = x.shape
+            x = self.Pretrainedencoder(x)[-1]
+            x = self.conv_reduce(x)
+            flat1 = F.max_pool3d(x, kernel_size=x.size()[2:])
+            flat1 = flat1.view(b, -1)
+            o.append(flat1)
+        o = torch.concat(o, dim=1)
+        return self.classifier(o)
 
-        flat = F.max_pool3d(x, kernel_size=x.size()[2:])
-
-        flat = flat.view(b, -1)  # [B, features] - take phase out of batch
-        if metadata is not None:
-            # metadata = metadata.view(b, -1)
-            flat = torch.cat([flat, metadata], dim=1)
-            flat = self.metadata_projector(flat)
-        return self.classifier(flat)
-        # o = []
-        # for i in range(x.shape[1]):
-        #     print(i)
-        #     d = x[:, i:i+1, ...]
-        #     d = self.encoder(d)
-
-        #     # Bottleneck
-        #     # bottleneck = self.bottleneck(d)
-        #     flat = F.max_pool3d(d, kernel_size=d.size()[2:])
-        #     # Flatten bottleneck output
-        #     flat = flat.view(flat.size(0), -1)  # [B, features]
-        #     o.append(flat)
-        # # # Dense layers
-        # o = torch.concat(o, dim=1)
-        # print(o.shape)
-        # `return self.classifier(o)`
 
 
 # Example usage

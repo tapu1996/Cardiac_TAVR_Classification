@@ -18,8 +18,9 @@ class ClassNetEmbedding(nn.Module):
             self.conv_block(128, 256),
         )
 
-        self.metadata_projector = nn.Linear(
-            metadata_shape+256, 256
+        self.metadata_projector = nn.Sequential(
+            nn.Linear(metadata_shape+256, 256),
+            nn.LeakyReLU()
         )
         # self.fc1 = nn.Linear()
         self.classifier = nn.Sequential(
