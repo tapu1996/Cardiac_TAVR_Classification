@@ -91,7 +91,7 @@ class ClassificationTrainer(Trainer):
             return x
 
         train = Compose([
-            Lambda(func=lambda x: binarize(x)),
+            # Lambda(func=lambda x: binarize(x)),
             CenterSpatialCrop(roi_size=self.config["target_size"])
         ])
 
@@ -120,14 +120,16 @@ class ClassificationTrainer(Trainer):
             labels = labels.to(self.device, non_blocking=True).float()
             data = data.to(self.device, non_blocking=True)
             metadata = None
+            print(len(points), data.shape, labels.shape)
             if self.metadata_manager is not None:
                 metadata = self.metadata_manager.get_case_metadata([p.case_name for p in points])
                 metadata = torch.tensor(metadata, dtype=torch.float32).to(self.device)
+                print(metadata.shape)
                 # data = torch.cat([data, metadata], dim=1)
             batch_size = data.shape[0]
             # ForkedPdb().set_trace()
             # do prediction and calculate loss
-            predictions = self.model(data, metadata=metadata).squeeze()
+            predictions = self.model(data, metadata=None).squeeze()
             # print(predictions)
             # print(labels)
             # print(labels.shape)
@@ -207,7 +209,7 @@ class ClassificationTrainer(Trainer):
                 self.log_helper.log_net_structure(self.model, data)
             batch_size = data.shape[0]
             # do prediction and calculate loss
-            predictions = self.model(data, metadata=metadata).squeeze()
+            predictions = self.model(data, metadata=None).squeeze()
             loss = self.loss(predictions, labels)
             running_loss += loss.item() * batch_size
             # analyze
@@ -297,13 +299,17 @@ class ClassificationTrainer(Trainer):
                 "in_channels": 1,
                 "out_channels": 1
             }
-        elif name in ["eff", "efficientnet"]:
-            from efficientnet_pytorch_3d import EfficientNet3D
-            model = EfficientNet3D.from_name("efficientnet-b0", override_params={'num_classes': 1}, in_channels=10)
+
+        elif name in ["pretrained", "pre"]:
+            from classeg.extensions.tavr.training.pretrained import PretrainedModel
+            model = PretrainedModel
+            args = {
+                "in_channels": 1,
+                "out_channels": 1
+            }
 
         # import inspect
         # import shutil
         # print(inspect.getfile(model.__class__))
         # shutil.copy2(inspect.getfile(model.__class__), self.output_dir)
-        # return model(**args).to(self.device)
-        return model.to(self.device)
+        return model(**args).to(self.device)
