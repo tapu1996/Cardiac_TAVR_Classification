@@ -64,6 +64,8 @@ class ClassificationTrainer(Trainer):
         else:
             self.metadata_manager = None
 
+        self.roc_intervals = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
     def get_dataloaders(self):
         """
         This method is responsible for creating the augmentation and then fetching dataloaders.
