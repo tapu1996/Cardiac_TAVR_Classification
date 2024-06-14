@@ -2,18 +2,19 @@ from typing import Tuple, Any
 
 import torch
 import torch.nn as nn
-from classeg.training.trainer import Trainer, log
+from monai.transforms import Compose, CenterSpatialCrop
+from sklearn.metrics import recall_score, precision_score, f1_score
+from sklearn.metrics import roc_curve
 from torch.optim import SGD
-import torchvision.transforms as transforms
-from classeg.utils.constants import PREPROCESSED_ROOT
-from classeg.utils.utils import read_json
-from tqdm import tqdm
-from monai.transforms import Compose, CenterSpatialCrop, Lambda
-from classeg.utils.utils import get_dataloaders_from_fold
 from torch.utils.data import WeightedRandomSampler, DistributedSampler
+from tqdm import tqdm
+
 from classeg.extensions.tavr.training.metadata_processing import MetadataProcessing
-from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
-import warnings
+from classeg.training.trainer import Trainer, log
+from classeg.utils.constants import PREPROCESSED_ROOT
+from classeg.utils.utils import get_dataloaders_from_fold
+from classeg.utils.utils import read_json
+
 
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
@@ -217,6 +218,10 @@ class ClassificationTrainer(Trainer):
             all_labels.extend(labels.tolist())
             correct_count += torch.sum(predictions == labels)
             total_items += batch_size
+
+        fpr, tpr, _ = roc_curve(all_labels, all_predictions)
+        points = list(zip(fpr, tpr))
+        self.log_helper.log_graph(points, epoch, "Metrics/roc_curve/val")
         self.log_helper.plot_confusion_matrix(all_predictions, all_labels, self.class_names)
         self._val_accuracy = correct_count / total_items
         self._val_recall = recall_score(all_labels, all_predictions)
@@ -310,7 +315,6 @@ class ClassificationTrainer(Trainer):
                 "in_channels": 1,
                 "out_channels": 1
             }
-            
 
         # import inspect
         # import shutil
