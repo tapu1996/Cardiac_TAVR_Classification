@@ -1,5 +1,6 @@
 from typing import List
 
+import numpy as np
 import pandas as pd
 
 DROP = [
@@ -141,7 +142,13 @@ class MetadataProcessing:
     def get_case_metadata(self, case_name: List[str]):
         patient_ids = [int(name.split("_")[1]) for name in case_name]
         # return self.metadata.loc[self.metadata['id'] == patient_ids].drop("id", axis=1).values
-        return self.metadata.loc[self.metadata['id'].isin(patient_ids)].drop("id", axis=1).values
+        metadata = []
+        # TODO implement this with pandas methods
+        for name in case_name:
+            patient_id = int(name.split("_")[1])
+            metadata.append(self.metadata.loc[self.metadata['id'] == patient_id].drop("id", axis=1).values[0])
+        # return self.metadata.loc[self.metadata['id'].isin(patient_ids)].drop("id", axis=1).values
+        return np.array(metadata)
 
     def __repr__(self):
         return str(self.metadata.columns)
