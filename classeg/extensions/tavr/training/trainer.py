@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from monai.transforms import Compose, CenterSpatialCrop
 from sklearn.metrics import recall_score, precision_score, f1_score
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_curve, roc_auc_score
 from torch.optim import SGD
 from torch.utils.data import WeightedRandomSampler, DistributedSampler
 from tqdm import tqdm
@@ -19,7 +19,7 @@ from classeg.utils.utils import read_json
 class ClassificationTrainer(Trainer):
     def __init__(self, dataset_name: str, fold: int, model_path: str, gpu_id: int, unique_folder_name: str,
                  config_name: str, resume: bool = False, cache: bool = True, world_size: int = 1,
-                 use_metadata: str = "/home/student/andrewheschl/Cardiac_TAVR_Classification/mapped_ids_data.csv"):
+                 use_metadata: str = "/work/vision_lab/Cardiac_TAVR_Classification/mapped_ids_data.csv"):
         """
         Trainer class for training and checkpointing of networks.
         :param dataset_name: The name of the dataset to use.
@@ -56,6 +56,12 @@ class ClassificationTrainer(Trainer):
 
         self._val_f1 = 0.
         self._last_val_f1 = 0.
+
+        self._last_val_auc = 0.
+        self._val_auc = 0.
+        
+        self._last_train_auc = 0.
+        self._train_auc = 0.
 
         self.softmax = nn.Softmax(dim=1)
         self.sigmoid = nn.Sigmoid()
@@ -110,7 +116,7 @@ class ClassificationTrainer(Trainer):
         running_loss = 0.
         total_items = 0
         correct_count = 0.
-        all_predictions, all_labels = [], []
+        all_predictions, all_labels, all_probabilities = [], [], []
         # ForkedPdb().set_trace() 
         log_image = True
         i = 0
@@ -129,7 +135,7 @@ class ClassificationTrainer(Trainer):
             batch_size = data.shape[0]
             # ForkedPdb().set_trace()
             # do prediction and calculate loss
-            predictions = self.model(data, metadata=metadata).squeeze()
+            predictions = self.model(data, metadata=metadata).squeeze(dim=1)
             # print(predictions)
             # print(labels)
             # print(labels.shape)
@@ -138,7 +144,9 @@ class ClassificationTrainer(Trainer):
             loss.backward()
             self.optim.step()
             # predictions = torch.argmax(self.softmax(predictions), dim=1)
-            predictions = torch.round(self.sigmoid(predictions))
+            probs = self.sigmoid(predictions)
+            all_probabilities.extend(probs.tolist())
+            predictions = torch.round(probs)
             correct_count += torch.sum(predictions == labels)
             all_predictions.extend(predictions.tolist())
             all_labels.extend(labels.tolist())
@@ -147,10 +155,16 @@ class ClassificationTrainer(Trainer):
             total_items += batch_size
 
         self.log_helper.plot_confusion_matrix(all_predictions, all_labels, self.class_names, set_name="train")
+
+        fpr, tpr, _ = roc_curve(all_labels, all_probabilities)
+        points = list(zip(fpr, tpr))
+        self.log_helper.log_graph(points, epoch, "Metrics/roc_curve/train")
+
         self._train_accuracy = correct_count / total_items
         self._train_recall = recall_score(all_labels, all_predictions)
         self._train_precision = precision_score(all_labels, all_predictions)
         self._train_f1 = f1_score(all_labels, all_predictions)
+        self._train_auc = roc_auc_score(all_labels, all_probabilities)
 
         return running_loss / total_items
 
@@ -169,7 +183,10 @@ class ClassificationTrainer(Trainer):
                     f"Train precision: {self._train_precision} --change-- {self._train_precision - self._last_train_precision}",
                     "------F1------",
                     f"Val f1: {self._val_f1} --change-- {self._val_f1 - self._last_val_f1}",
-                    f"Train f1: {self._train_f1} --change-- {self._train_f1 - self._last_train_f1}"]
+                    f"Train f1: {self._train_f1} --change-- {self._train_f1 - self._last_train_f1}",
+                    "------AUC------",
+                    f"Val auc: {self._val_auc} --change-- {self._val_auc - self._last_val_auc}",
+                    f"Train auc: {self._train_auc} --change-- {self._train_auc - self._last_train_auc}"]
 
         self._last_val_accuracy = self._val_accuracy
         self._last_train_accuracy = self._train_accuracy
@@ -179,6 +196,8 @@ class ClassificationTrainer(Trainer):
         self._last_train_precision = self._train_precision
         self._last_val_f1 = self._val_f1
         self._last_train_f1 = self._train_f1
+        self._last_val_auc = self._val_auc
+        self._last_train_auc = self._train_auc
 
         return tuple(messages)
 
@@ -192,7 +211,7 @@ class ClassificationTrainer(Trainer):
         running_loss = 0.
         correct_count = 0.
         total_items = 0
-        all_predictions, all_labels = [], []
+        all_predictions, all_labels, all_probabilities = [], [], []
         i = 0
         for data, labels, points in tqdm(self.val_dataloader):
             i += 1
@@ -207,19 +226,21 @@ class ClassificationTrainer(Trainer):
                 self.log_helper.log_net_structure(self.model, data)
             batch_size = data.shape[0]
             # do prediction and calculate loss
-            predictions = self.model(data, metadata=metadata).squeeze()
+            predictions = self.model(data, metadata=metadata).squeeze(dim=1)
             loss = self.loss(predictions, labels)
             running_loss += loss.detach().item() * batch_size
             # analyze
             # predictions = torch.argmax(self.softmax(predictions), dim=1)
             # labels = torch.argmax(labels, dim=1)
-            predictions = torch.round(self.sigmoid(predictions))
+            probs = self.sigmoid(predictions)
+            all_probabilities.extend(probs.tolist())
+            predictions = torch.round(probs)
             all_predictions.extend(predictions.tolist())
             all_labels.extend(labels.tolist())
             correct_count += torch.sum(predictions == labels)
             total_items += batch_size
 
-        fpr, tpr, _ = roc_curve(all_labels, all_predictions)
+        fpr, tpr, _ = roc_curve(all_labels, all_probabilities)
         points = list(zip(fpr, tpr))
         self.log_helper.log_graph(points, epoch, "Metrics/roc_curve/val")
         self.log_helper.plot_confusion_matrix(all_predictions, all_labels, self.class_names)
@@ -227,6 +248,7 @@ class ClassificationTrainer(Trainer):
         self._val_recall = recall_score(all_labels, all_predictions)
         self._val_precision = precision_score(all_labels, all_predictions)
         self._val_f1 = f1_score(all_labels, all_predictions)
+        self._val_auc = roc_auc_score(all_labels, all_probabilities)
 
         return running_loss / total_items
 

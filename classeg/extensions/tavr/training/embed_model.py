@@ -45,7 +45,7 @@ class ClassNetEmbedding(nn.Module):
 
     def forward(self, x, metadata=None):
         # Encoder
-        # x = x[: (0, 4), ...]
+        # x = x[: (0, 4), ...]\
         x = torch.sum(x, dim=1).unsqueeze(1)
         # x = torch.sum(x, dim=1).unsqueeze(1)
         b, t, *r = x.shape
@@ -60,7 +60,8 @@ class ClassNetEmbedding(nn.Module):
             # metadata = metadata.view(b, -1)
             flat = torch.cat([flat, metadata], dim=1)
             flat = self.metadata_projector(flat)
-        return self.classifier(flat)
+        result = self.classifier(flat)
+        return result
         # o = []
         # for i in range(x.shape[1]):
         #     print(i)
